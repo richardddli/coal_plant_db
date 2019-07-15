@@ -55,6 +55,7 @@ total_MW_joint.sort_index(inplace=True)
 #now concatenate two tables
 total_MW = total_MW.append(total_MW_joint)
 total_MW.groupby(total_MW.index).sum()
+total_MW.sort_index(inplace=True)
 
 #print table
 total_MW.to_csv(os.path.join(cwd, 'eia860', 'Total Coal By Owner.csv'))
