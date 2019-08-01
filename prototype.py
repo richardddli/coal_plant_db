@@ -8,15 +8,16 @@ This is a temporary script file.
 import os
 import pandas as pd
 
-## This script aggregates the total MW of coal generation for each utility,
-## broken down by partial ownership given the tables in EIA 860
+## This script generates a prototype database with the following attributes
+## for each coal plant:
+## (1) Ownership (how many owners, what types of owners [TODO])
+## (2) Remaining plant balance (taken directly from Depreciation model)
+## (3) Self committing vs Market committing (taken from JD Sierra Club paper TODO)
 
-
-# import plant & ownership data
+# import EIA 860
 cwd = os.path.dirname(os.path.realpath(__file__))
 plant_cols = ['Plant Name', 'Plant Code', 'Utility Name', 
-              'Generator ID', 'Technology', 'Ownership'
-              ]
+              'Generator ID', 'Technology', 'Ownership']
 #plant_cols = ['Plant Name', 'Plant Code', 'Utility Name', 'Utility ID', 'State',
 #              'Generator ID', 'Technology', 'Prime Mover', 'Unit Code',
 #              'Ownership', 'Nameplate Capacity (MW)', 'Nameplate Power Factor',
@@ -25,29 +26,28 @@ plant_cols = ['Plant Name', 'Plant Code', 'Utility Name',
 plants = pd.read_csv(os.path.join(cwd, 'eia860', '3_1_Generator_Y2017.csv'), skiprows=1, usecols=plant_cols)
 owners = pd.read_csv(os.path.join(cwd, 'eia860', '4___Owner_Y2017.csv'), skiprows=1)
 
+# import depreciation model outputs (NEEDS TO BE UPDATED)
+balance_or = pd.read_csv(os.path.join(cwd, 'plant balance [wrong].csv'), skiprows=1)
+balance = balance_or[balance_or['EIA Plant ID Best Match'].notnull()]
+balance = balance[balance['Account Title'].notnull()]
 
-bal_or = pd.read_csv(os.path.join(cwd, 'plant balance [wrong].csv'), skiprows=1)
-bal = bal_or[bal_or['EIA Plant ID Best Match'].notnull()]
-bal = bal[bal['Account Title'].notnull()]
-
+# matching plant and unit between depreciation model and EIA 860
 plants['Generator ID'] = plants['Generator ID'].astype(str)
-count = 0
-for i, row in bal.iterrows():
+for i, row in balance.iterrows():
     if row['EIA Plant ID Best Match'] in set(plants['Plant Code']):
         matches = plants[plants['Plant Code'] == row['EIA Plant ID Best Match']]  
         if row['Account Title'][-1].isdigit():
             matches = matches[matches['Generator ID'] == row['Account Title'][-1]]
             if(not matches.empty):
                 plants.loc[matches.index[0], 'Plant Balance'] = row['ANNUAL AMOUNT']
-                count +=1
         else:
             plants.loc[matches.index[0], 'Plant Balance'] = row['ANNUAL AMOUNT']
-            count +=1
             
-
+# selecting only coal plants with a plant balance for now
 plants2 = plants[plants['Plant Balance'].notnull()]
 plants2 = plants2[plants2['Technology'] == 'Conventional Steam Coal']
 
+# adding multiple ownership information
 for i, row in plants2[plants2['Ownership'] != 'S'].iterrows():
     own = owners[(owners['Plant Code'] == row['Plant Code']) & 
                  (owners['Generator ID'] == row['Generator ID'])]
