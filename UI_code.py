@@ -43,3 +43,11 @@ def plotcap():
     sht.pictures.add(fig, name='MyPlot', update=True, left=sht.range('E2').left, top=sht.range('E2').top)
 
 def index():
+    # Create a reference to the calling Excel Workbook
+    sht = xw.Book.caller().sheets['Sheet1']
+
+    # Get dataframe selection and show it in Excel
+    main.sort_values(by=['Plant Balance'])
+    largest = main.nlargest(10, 'Plant Balance')
+    largest = largest[['Utility Name','Plant Name','Plant Balance']]
+    sht.range('A10').value = largest
