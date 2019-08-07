@@ -8,12 +8,15 @@ This is a temporary script file.
 import os
 import pandas as pd
 from fuzzywuzzy import fuzz, process
+import pdb
+import matplotlib.pyplot as plt
+import numpy as np
 
 ## This script generates a prototype database with the following attributes
 ## for each coal plant:
-## (1) Ownership (how many owners, what types of owners [TODO])
+## (1) Ownership (how many owners, what types of owners)
 ## (2) Remaining plant balance (taken directly from Depreciation model)
-## (3) Self committing vs Market committing (taken from JD Sierra Club paper TODO)
+## (3) Self committing vs Market committing (taken from JD Sierra Club paper)
 
 # import EIA 860
 cwd = os.path.dirname(os.path.realpath(__file__))
@@ -49,14 +52,18 @@ for i, row in balance.iterrows():
         plants2.loc[(plants2['Plant Name'] == eia_name) & 
                     (plants2['Generator ID'] == match['Generator ID']), 
                     'Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
-        
     else:
         match = unit_list[unit_list['Plant Code'] == row['Plant ID']].iloc[0]
         eia_name = process.extractOne(match['Plant Name'], plant_names)[0]
-        plants2.loc[plants2['Plant Name'] == eia_name, 
-                    'Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
+        new_row = plants2[plants2['Plant Name'] == eia_name].iloc[0]
+        new_row['Generator ID'] = 'ALL'
+        new_row['Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
 
-# select only coal plants or those with plant balances
+        plants2 = plants2.append(new_row)
+#        plants2.loc[plants2['Plant Name'] == eia_name, 
+ #                   'Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
+
+# select only coal plants or plants with plant balances
 plants2 = plants2[(plants2['Technology'] == 'Conventional Steam Coal') | 
                  (plants2['Plant Balance'].notnull())]
 
@@ -96,5 +103,33 @@ for i, row in sc.iterrows():
     plants2.loc[(plants2['Plant Name'] == name_mapping[row['Plant Name']]) & 
                 (plants2['Generator ID'] == row['Unit No']), "CF Offset"] = \
     row['Expected vs Actual']
-                
+              
     
+    
+    
+## CREATING VISUALIZATIONS
+# graph the top 10 plants by any label
+def graph_top(label, number, xlabel, title):
+    if label not in plants2.columns:
+        print('%s not in columns, try again'%(label))
+    ascending = False if label=='Plant Balance' else True
+    df = plants2.sort_values(label, ascending=ascending)
+    df = df.iloc[:10]
+    fig, ax = plt.subplots()
+    y_ticks = np.arange(len(df))
+    df.loc[df['Generator ID'] == 'ALL', 'Generator ID'] = " "
+    y_tick_labels = df['Plant Name'] + ' ' + df['Generator ID']
+    
+    ax.barh(y_ticks, width=df[label])
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels(y_tick_labels, rotation='horizontal')
+    ax.set_xlabel(xlabel)
+    ax.set_title(title)
+    return fig
+
+# graphing the top 10 plant balances; top 10 self-committing plants
+pb = graph_top('Plant Balance', 10, 'Undepreciated Plant Balance ($)', 'Candidates for Securitization (WI, KY)')
+cf = graph_top('CF Offset', 10, 'Difference of Expected vs. Actual Capacity Factor (%)', 'Self-Committing Plants (SPP)')
+pr = graph_top('Profits', 10, 'Profits/Losses in 2015-17 ($ Millions)', 'Least Profitable Plants (SPP)')
+    
+
