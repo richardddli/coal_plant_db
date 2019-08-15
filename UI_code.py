@@ -16,6 +16,7 @@ file.rename(columns={0: 'Capacity (MW)'}, inplace=True)
 
 #read in prototype df
 main = prototype.plants2
+pb = prototype.pb
 
 def capacity():
     ui = xw.Book.caller() #connects to xlsm macro
@@ -38,16 +39,14 @@ def plotcap():
     # Create a reference to the calling Excel Workbook
     sht = xw.Book.caller().sheets['Sheet1'] #connects to xlsm macro
 
-    # Get the figure and show it in Excel
-    fig = get_figure()
-    sht.pictures.add(fig, name='MyPlot', update=True, left=sht.range('E2').left, top=sht.range('E2').top)
-
-def index():
-    # Create a reference to the calling Excel Workbook
-    sht = xw.Book.caller().sheets['Sheet1']
-
-    # Get dataframe selection and show it in Excel
-    main.sort_values(by=['Plant Balance'])
-    largest = main.nlargest(10, 'Plant Balance')
-    largest = largest[['Utility Name','Plant Name','Plant Balance']]
-    sht.range('A10').value = largest
+    if Range('B6').value == 'Python':
+        #reate visualization in python
+        #fig = get_figure()
+        fig = pb
+        sht.pictures.add(fig, name='MyPlot', update=True, left=sht.range('E2').left, top=sht.range('E2').top)
+    else:
+        # Get dataframe selection and show it in Excel
+        main.sort_values(by=['Plant Balance'])
+        largest = main.nlargest(10, 'Plant Balance')
+        largest = largest[['Utility Name', 'Plant Name', 'Plant Balance']]
+        sht.range('A12').value = largest
