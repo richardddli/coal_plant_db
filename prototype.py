@@ -64,8 +64,9 @@ for i, row in balance.iterrows():
  #                   'Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
 
 # select only coal plants or plants with plant balances
-plants2 = plants2[(plants2['Technology'] == 'Conventional Steam Coal') | 
-                 (plants2['Plant Balance'].notnull())]
+plants2 = plants2[(plants2['Technology'] == 'Conventional Steam Coal') |
+                  (plants2['Technology'] == 'Coal Integrated Gasification Combined Cycle') |
+                  (plants2['Plant Balance'].notnull())]
 
 
 # adding multiple ownership information
@@ -133,3 +134,20 @@ cf = graph_top('CF Offset', 10, 'Difference of Expected vs. Actual Capacity Fact
 pr = graph_top('Profits', 10, 'Profits/Losses in 2015-17 ($ Millions)', 'Least Profitable Plants (SPP)')
     
 
+plan_tool = pd.read_csv('/Users/richardli/Documents/Coal Database/SC planning tool.csv', skiprows=2)
+name_mapping = pd.read_csv('/Users/richardli/Documents/Coal Database/sc-eia plant mapping.csv', skiprows=2)
+coal_plants = plants[(plants['Technology'] == 'Conventional Steam Coal') |
+                     (plants['Technology'] == 'Coal Integrated Gasification Combined Cycle')]
+plant_names = list(set(coal_plants['Plant Name']))
+
+remaining = plan_tool.loc[plan_tool['Current Designation'] == 'Other Remaining']
+
+for i, row in remaining.iterrows():
+    if name_mapping['Sierra Club'].str.contains(row['Plant Name']).any():
+        match = name_mapping.loc[name_mapping['Sierra Club'] == row['Plant Name'], 'EIA 860'].iloc[0]
+    else:
+        match = process.extractOne(row['Plant Name'], plant_names)[0]
+    units = plants[plants['Plant Name'] == match]
+    if units['Generator ID'].str.contains(row['GEN ID']).any():
+        plants.loc[(plants['Plant Name'] == match) & (plants['Generator ID'] == row['GEN ID']), 'Current Designation'] = row['Current Designation']
+    
