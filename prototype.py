@@ -8,113 +8,213 @@ This is a temporary script file.
 import os
 import pandas as pd
 from fuzzywuzzy import fuzz, process
-import pdb
 import matplotlib.pyplot as plt
 import numpy as np
 
-## This script generates a prototype database with the following attributes
-## for each coal plant:
-## (1) Ownership (how many owners, what types of owners)
-## (2) Remaining plant balance (taken directly from Depreciation model)
-## (3) Self committing vs Market committing (taken from JD Sierra Club paper)
-
-# import EIA 860
+# define working directory where all files live
 cwd = os.path.dirname(os.path.realpath(__file__))
-plant_cols = ['Plant Name', 'Plant Code', 'Utility Name', 
-              'Generator ID', 'Technology', 'Ownership']
-#plant_cols = ['Plant Name', 'Plant Code', 'Utility Name', 'Utility ID', 'State',
-#              'Generator ID', 'Technology', 'Prime Mover', 'Unit Code',
-#              'Ownership', 'Nameplate Capacity (MW)', 'Nameplate Power Factor',
-#              'Operating Month', 'Operating Year', 'Planned Retirement Month', 
-#              'Planned Retirement Year', 'Sector Name']
-plants = pd.read_csv(os.path.join(cwd, 'eia860', '3_1_Generator_Y2017.csv'), skiprows=1, usecols=plant_cols)
-owners = pd.read_csv(os.path.join(cwd, 'eia860', '4___Owner_Y2017.csv'), skiprows=1)
 
-# selecting only coal plants for now
-#plants2 = plants[plants['Technology'] == 'Conventional Steam Coal']
-plants2=plants[plants['Plant Name'].notnull()]
+###############################################################################
+########################### BUILDING THE DATABASE #############################
+###############################################################################
 
-# import depreciation model outputs
-balance_or = pd.read_csv(os.path.join(cwd, 'plant balance.csv'))
-balance = balance_or[balance_or['Current Net Plant Balance Incl. Removal Net of Salvage ($)'].notnull()
- & balance_or['Current Net Plant Balance Incl. Removal Net of Salvage ($)'] != 0]
-
-unit_list = pd.read_csv(os.path.join(cwd, 'master unit list.csv'), skiprows=2)
-unit_list = unit_list[unit_list['Plant Code'].notnull()]
-unit_list['Plant Code'] = unit_list['Plant Code'].astype(int).astype(str)
-
-# matching plant & unit between depreciation model and EIA 860
-plant_names = sorted(list(set(plants2['Plant Name'])))
-for i, row in balance.iterrows():
-    if '_' in row['Plant ID']:
-        match = unit_list[unit_list['Plant Generator ID'] == row['Plant ID']].iloc[0]
-        eia_name = process.extractOne(match['Plant Name'], plant_names)[0]
-        plants2.loc[(plants2['Plant Name'] == eia_name) & 
-                    (plants2['Generator ID'] == match['Generator ID']), 
-                    'Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
-    else:
-        match = unit_list[unit_list['Plant Code'] == row['Plant ID']].iloc[0]
-        eia_name = process.extractOne(match['Plant Name'], plant_names)[0]
-        new_row = plants2[plants2['Plant Name'] == eia_name].iloc[0]
-        new_row['Generator ID'] = 'ALL'
-        new_row['Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
-
-        plants2 = plants2.append(new_row)
-#        plants2.loc[plants2['Plant Name'] == eia_name, 
- #                   'Plant Balance'] = row['Current Net Plant Balance Incl. Removal Net of Salvage ($)']
-
-# select only coal plants or plants with plant balances
-plants2 = plants2[(plants2['Technology'] == 'Conventional Steam Coal') |
-                  (plants2['Technology'] == 'Coal Integrated Gasification Combined Cycle') |
-                  (plants2['Plant Balance'].notnull())]
+"""
+Imports EIA 860 to construct initial database, using tables 3 (plants) and 4 (owners).
+INPUTS
+    cols:   list of columns to import from Table 3. If None, uses default columns.
+OUTPUTS
+    plants: database of generators
+    owners: database of multiple ownership information for generators
+RUNTIME: ~1 sec
+"""
+def import_eia860(cols=None):
+    if cols is None:
+        cols = ['Plant Name', 'Plant Code', 'Utility Name', 'Utility ID',
+                'Generator ID', 'State', 'Technology', 'Ownership', 'Nameplate Capacity (MW)']
+        # potential columns of interest:
+        # plant_cols = ['Plant Name', 'Plant Code', 'Utility Name', 'Utility ID', 'State',
+        #              'Generator ID', 'Technology', 'Prime Mover', 'Unit Code',
+        #              'Ownership', 'Nameplate Capacity (MW)', 'Nameplate Power Factor',
+        #              'Operating Month', 'Operating Year', 'Planned Retirement Month', 
+        #              'Planned Retirement Year', 'Sector Name']
+    plants = pd.read_csv(os.path.join(cwd, 'eia860', '3_1_Generator_Y2017.csv'), skiprows=1, usecols=cols)
+    plants['Nameplate Capacity (MW)'] = plants['Nameplate Capacity (MW)'].astype(float)
+    plants[plants['Plant Name'].notnull()]
+    owners = pd.read_csv(os.path.join(cwd, 'eia860', '4___Owner_Y2017.csv'), skiprows=1)
+    return plants, owners
 
 
-# adding multiple ownership information
-for i, row in plants2[plants2['Ownership'] != 'S'].iterrows():
-    own = owners[(owners['Plant Code'] == row['Plant Code']) & 
-                 (owners['Generator ID'] == row['Generator ID'])]
-    own.reset_index(inplace=True)
-    count = 1
-    for j, r in own.iterrows():
-        if r['Percent Owned'] > .1:
-            plants2.loc[i, 'Owner #' + str(count)] = r['Owner Name']
-            plants2.loc[i, '% Owned #' + str(count)] = r['Percent Owned']
-            count += 1
+"""
+Merges RMI depreciation model to existing EIA database.
+INPUTS
+    plants: current database
+    cols:   list of columns to import from depreciation database. If None,
+            only imports net plant balance including removal net of salvage.
+OUTPUTS
+    plants: updated database with plant balances
+RUNTIME: ~15 sec
+"""
+def add_depreciation_model(plants, cols=None):
+    if cols is None:
+        cols = 'Current Net Plant Balance Incl. Removal Net of Salvage ($)'
+    depr_model = pd.read_csv(os.path.join(cwd, 'plant balance clean.csv'))
+    # remove zero and nan values
+    depr_model = depr_model[depr_model[cols].notnull() & (depr_model[cols] != 0)]
+    # do not include 'other production' rows
+    depr_model = depr_model[~(depr_model['Plant ID'].str.contains('Other') | 
+                        depr_model['Plant ID'].str.contains('Mining'))]
+
+    for i, row in depr_model.iterrows():
+        if '_' in row['Plant ID']:
+            plant_id = row['Plant ID'].split('_')[0]
+            unit_id = row['Plant ID'].split('_')[1]
+            match = plants[(plants['Plant Code'] == float(plant_id)) & 
+                           (plants['Generator ID'] == unit_id)]
+            if not (match.empty):
+                plants.loc[(plants['Plant Code'] == float(plant_id)) & 
+                           (plants['Generator ID'] == unit_id), 'Plant Balance'] = \
+                               row[cols]
+        else:
+            new_row = plants[plants['Plant Code'] == float(row['Plant ID'])].iloc[0]
+            new_row['Generator ID'] = 'ALL'
+            new_row['Plant Balance'] = row[cols]
+            plants = plants.append(new_row)
+    return plants
 
 
-## ADD SELF COMMITTING DATA
-sc = pd.read_csv(os.path.join(cwd, 'self_committing.csv'))
-
-# fuzzy matching for plant names between self-committing dataset and EIA.
-plant_names = sorted(list(set(plants2['Plant Name'])))
-name_mapping = {}
-for i, row in sc.iterrows():
-    name_mapping[row['Plant Name']] = process.extractOne(row['Plant Name'], plant_names, scorer = fuzz.partial_ratio)[0]
-
-# the top match from above was chosen for each except for the following exceptions,
-# which were manually matched:
-name_mapping["Scottsbluff ST Plant"] = "Western Sugar Coop - Scottsbluff"
-name_mapping["Grand River Energy Center (GRDA)"] = "GREC"
-
-# add self-committing data to main dataset
-for i, row in sc.iterrows():
-    plants2.loc[(plants2['Plant Name'] == name_mapping[row['Plant Name']]) & 
-                (plants2['Generator ID'] == row['Unit No']), "Profits"] = \
-    row['2-year Cumulative Profits (Losses) ($ Millions)']
-    plants2.loc[(plants2['Plant Name'] == name_mapping[row['Plant Name']]) & 
-                (plants2['Generator ID'] == row['Unit No']), "CF Offset"] = \
-    row['Expected vs Actual']
-              
+"""
+Merges Sierra Club planning tool to database. Currently only merges "Other
+Remaining" plants – the rest will require manual name matching for ~300 plants.
+INPUTS
+    plants:     current database (only includes coal plants and plants with balances)
+    cols:       list of columns to import from planning tool. If None, will
+                import Current Designation and Predicted Retirement Year.
+OUTPUTS
+    plants:     current database
+RUNTIME: ~20 sec
+"""
+def add_sc_planning_tool(plants, cols=None):
+    if cols is None:
+        cols = ['Current Designation', 'Predicted Retirement Year']
+    plan_tool = pd.read_csv(os.path.join(cwd, 'SC planning tool.csv'), skiprows=2)
+    name_mapping = pd.read_csv('/Users/richardli/Documents/Coal Database/sc-eia plant mapping.csv', skiprows=2)
+    coal_plants = plants[(plants['Technology'] == 'Conventional Steam Coal') |
+                         (plants['Technology'] == 'Coal Integrated Gasification Combined Cycle')]
+    plant_names = list(set(coal_plants['Plant Name']))
     
+    remaining = plan_tool.loc[plan_tool['Current Designation'] == 'Other Remaining']
+    for i, row in remaining.iterrows():
+        if name_mapping['Sierra Club'].str.contains(row['Plant Name']).any():
+            match = name_mapping.loc[name_mapping['Sierra Club'] == row['Plant Name'], 'EIA 860'].iloc[0]
+        else:
+            match = process.extractOne(row['Plant Name'], plant_names)[0]
+        units = plants[plants['Plant Name'] == match]
+        if units['Generator ID'].str.contains(row['GEN ID']).any():
+            for col in cols:
+                plants.loc[(plants['Plant Name'] == match) & 
+                           (plants['Generator ID'] == row['GEN ID']), col] = row[col]
+    return plants
+
+
+"""
+Adds self-committing data from Joe Daniel's Sierra Club paper.
+INPUTS
+    plants: current database
+OUTPUTS
+    plants: updated database with self-committing data
+RUNTIME: ~5 sec
+"""
+def add_self_committing(plants):
+    sc = pd.read_csv(os.path.join(cwd, 'self_committing.csv'))
     
+    # fuzzy matching for plant names between self-committing dataset and EIA.
+    plant_names = sorted(list(set(plants['Plant Name'])))
+    name_mapping = {}
+    for i, row in sc.iterrows():
+        name_mapping[row['Plant Name']] = process.extractOne(row['Plant Name'], plant_names, scorer = fuzz.partial_ratio)[0]
     
-## CREATING VISUALIZATIONS
-# graph the top 10 plants by any label
-def graph_top(label, number, xlabel, title):
-    if label not in plants2.columns:
+    # the top match from above was chosen for each except for the following exceptions,
+    # which were manually matched:
+    name_mapping["Scottsbluff ST Plant"] = "Western Sugar Coop - Scottsbluff"
+    name_mapping["Grand River Energy Center (GRDA)"] = "GREC"
+    
+    # add self-committing data to main dataset
+    for i, row in sc.iterrows():
+        plants.loc[(plants['Plant Name'] == name_mapping[row['Plant Name']]) & 
+                   (plants['Generator ID'] == row['Unit No']), "Profits"] = \
+                        row['2-year Cumulative Profits (Losses) ($ Millions)']
+        plants.loc[(plants['Plant Name'] == name_mapping[row['Plant Name']]) & 
+                   (plants['Generator ID'] == row['Unit No']), "CF Offset"] = \
+                        row['Expected vs Actual']
+    return plants
+
+
+""" 
+Adds multiple ownership information from EIA 860 table 4.
+INPUTS
+    plants: current database
+    owners: database of multiple ownership information
+OUTPUTS
+    plants: updated database with multiple ownership information
+RUNTIME: ~30 sec
+"""
+def add_multiple_ownership(plants, owners):
+    for i, row in plants[plants['Ownership'] != 'S'].iterrows():
+        matches = owners[(owners['Plant Code'] == row['Plant Code']) & 
+                         (owners['Generator ID'] == row['Generator ID'])]
+        matches.reset_index(inplace=True)
+        count = 1
+        for j, row2 in matches.iterrows():
+            if row2['Percent Owned'] > .1:
+                plants.loc[i, 'Owner #' + str(count)] = row2['Owner Name']
+                plants.loc[i, '% Owned #' + str(count)] = row2['Percent Owned']
+                count += 1
+    return plants
+
+
+"""
+Wrapper function that builds a database using all available datasets (EIA 860,
+RMI depreciation model, Sierra Club planning tool, Joe Daniel's self-committing 
+data, multiple ownership information)
+
+INPUTS: none
+OUTPUTS
+    plants:     database of mostly coal generators with all available data
+    all_plants: database of all generators with limited data
+RUNETIME: ~70 sec
+"""
+def build_database():
+    all_plants, owners = import_eia860()
+    all_plants = add_depreciation_model(all_plants)
+    # select only coal plants or plants with plant balances (~1000 out of 20000)
+    plants = all_plants[(all_plants['Technology'] == 'Conventional Steam Coal') |
+                        (all_plants['Technology'] == 'Coal Integrated Gasification Combined Cycle') |
+                        (all_plants['Plant Balance'].notnull())]
+    
+    plants = add_sc_planning_tool(plants)
+    plants = add_self_committing(plants)
+    plants = add_multiple_ownership(plants, owners)
+    return plants, all_plants
+
+
+
+plants, all_plants = build_database()
+
+
+
+
+###############################################################################
+########################## CREATING VISUALIZATIONS ############################
+###############################################################################
+
+""" Graphs the top 10 plants by any label.
+TODO: finish documentation
+"""
+def graph_top(plants, label, number, xlabel, title):
+    if label not in plants.columns:
         print('%s not in columns, try again'%(label))
     ascending = False if label=='Plant Balance' else True
-    df = plants2.sort_values(label, ascending=ascending)
+    df = plants.sort_values(label, ascending=ascending)
     df = df.iloc[:10]
     fig, ax = plt.subplots()
     y_ticks = np.arange(len(df))
@@ -128,26 +228,89 @@ def graph_top(label, number, xlabel, title):
     ax.set_title(title)
     return fig
 
-# graphing the top 10 plant balances; top 10 self-committing plants
-pb = graph_top('Plant Balance', 10, 'Undepreciated Plant Balance ($)', 'Candidates for Securitization (WI, KY)')
-cf = graph_top('CF Offset', 10, 'Difference of Expected vs. Actual Capacity Factor (%)', 'Self-Committing Plants (SPP)')
-pr = graph_top('Profits', 10, 'Profits/Losses in 2015-17 ($ Millions)', 'Least Profitable Plants (SPP)')
+# graphs the top 10 plant balances; top 10 self-committing plants
+pb = graph_top(plants, 'Plant Balance', 10, 'Undepreciated Plant Balance ($)', 
+               'Candidates for Securitization (WI, KY)')
+cf = graph_top(plants, 'CF Offset', 10, 'Difference of Expected vs. Actual Capacity Factor (%)', 
+               'Self-Committing Plants (SPP)')
+pr = graph_top(plants, 'Profits', 10, 'Profits/Losses in 2015-17 ($ Millions)', 
+               'Least Profitable Plants (SPP)')
     
 
-plan_tool = pd.read_csv('/Users/richardli/Documents/Coal Database/SC planning tool.csv', skiprows=2)
-name_mapping = pd.read_csv('/Users/richardli/Documents/Coal Database/sc-eia plant mapping.csv', skiprows=2)
-coal_plants = plants[(plants['Technology'] == 'Conventional Steam Coal') |
-                     (plants['Technology'] == 'Coal Integrated Gasification Combined Cycle')]
-plant_names = list(set(coal_plants['Plant Name']))
 
-remaining = plan_tool.loc[plan_tool['Current Designation'] == 'Other Remaining']
 
-for i, row in remaining.iterrows():
-    if name_mapping['Sierra Club'].str.contains(row['Plant Name']).any():
-        match = name_mapping.loc[name_mapping['Sierra Club'] == row['Plant Name'], 'EIA 860'].iloc[0]
-    else:
-        match = process.extractOne(row['Plant Name'], plant_names)[0]
-    units = plants[plants['Plant Name'] == match]
-    if units['Generator ID'].str.contains(row['GEN ID']).any():
-        plants.loc[(plants['Plant Name'] == match) & (plants['Generator ID'] == row['GEN ID']), 'Current Designation'] = row['Current Designation']
-    
+###############################################################################
+############################### ANALYSIS TOOLS ################################
+###############################################################################
+"""
+Selects a subset of the database by attribute (column) value(s).
+NOT CURRENTLY IMPLEMENTED: selecting by market or utility type (coop, muni, etc)
+
+INPUTS
+    df:        database
+    attribute: the attribute (or column) 
+    values:    the value(s) to select
+OUTPUTS
+    df:        subset of database with selected values
+RUNTIME: ~1-10 sec
+EXAMPLE USAGE (can be called in series):
+    subset = select_by_attribute(plants, 'State', 'AL)
+    subset = select_by_attribute(plants, 'Utility Name', 'Brandon Shores LLC')
+    subset = select_by_attribute(plants, 'Current Designation', 'Other Remaining')
+"""
+def select_by_attribute(df, attribute, values):
+    if attribute not in df.columns:
+        print('%s is not a valid attribute. Please select one of the following:\n' %attribute)
+        print(*df.columns, sep=', ')
+        return
+    if not isinstance(values, list):
+        values = [values]
+    return df[df[attribute].isin(values)]
+
+
+"""
+Aggregates data by level (plant, utility, geography).
+TO IMPLEMENT: more interesting statstics, i.e. % of coal for all generation in a state
+
+INPUTS
+    df:    database
+    level: level by which to aggregate, i.e. Unit, Plant, State
+OUTPUTS: 
+    df:    database grouped by level
+RUNTIME: ~1-10 sec
+EXAMPLE USAGE:
+    agg = aggregate_by_level(plants, 'Plant')
+"""
+def aggregate_by_level(df, level):
+    col_to_keep = ['Plant Balance', 'Nameplate Capacity (MW)']
+    if level == 'Unit/Subunit':
+        return df
+    if level == 'Plant':
+        df = df.groupby(['Plant Code', 'Plant Name', 'Utility Name', 'Technology']).sum()
+        return df[col_to_keep].reset_index().set_index('Plant Code')
+    if level == 'Technology':
+        df = df.groupby('Technology').sum()
+        return df[col_to_keep].reset_index().set_index('Technology')
+    if level == 'Utility':
+        df = df.groupby('Utility Name').sum()
+        return df[col_to_keep].reset_index().set_index('Utility Name')
+    if level == 'State':
+        df = df.groupby('State').sum()
+        return df[col_to_keep].reset_index().set_index('State')
+        
+"""
+Sorts data by an attribute (column).
+"""
+def sort_by_attribute(df, attribute, ascending=True):
+    try:
+        sorted = df.sort_values(attribute, ascending=ascending)
+    except(KeyError):
+        print('%s is not a valid attribute. Please select one of the following:\n' %attribute)
+        print(*df.columns, sep=', ')
+        return
+    return sorted
+        
+        
+        
+        
+        
