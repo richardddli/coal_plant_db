@@ -97,7 +97,7 @@ def add_sc_planning_tool(plants, cols=None):
     if cols is None:
         cols = ['Current Designation', 'Predicted Retirement Year']
     plan_tool = pd.read_csv(os.path.join(cwd, 'SC planning tool.csv'), skiprows=2)
-    name_mapping = pd.read_csv('/Users/richardli/Documents/Coal Database/sc-eia plant mapping.csv', skiprows=2)
+    name_mapping = pd.read_csv(os.path.join(cwd, 'sc-eia plant mapping.csv'), skiprows=2)
     coal_plants = plants[(plants['Technology'] == 'Conventional Steam Coal') |
                          (plants['Technology'] == 'Coal Integrated Gasification Combined Cycle')]
     plant_names = list(set(coal_plants['Plant Name']))
