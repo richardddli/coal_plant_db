@@ -284,6 +284,7 @@ def plot_plant_balance(plants, x_axis, designations=None, labels=True, title=Non
     ax.set_xlabel(x_axis)
     ax.set_ylabel('Plant Balance ($ billions)')
     #ax.set_ylim([-.15*np.power(10,9), 1.85*np.power(10,9)])
+    fig.savefig(os.path.join(cwd, 'outputs', 'plot1.png'))
     return fig
 
 
