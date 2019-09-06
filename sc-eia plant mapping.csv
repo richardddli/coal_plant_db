@@ -1,19 +1,29 @@
 This dictionary manually maps plant names from Sierra Club planning tool onto EIA 860 (our data repository) that are incorrectly extracted from fuzzy string matching.,
 ,
 Sierra Club,EIA 860
-Primary Energy Southport,CPI USA NC Southport
-Manitowoc,Manitowoc
-Rodemacher,Brame Energy Center
-Cogen South,
-University of Missouri Columbia,MU Combined Heat and Power Plant
-GRDA,GREC
-Twin Oaks Power One,Major Oak Power
 Cliffside,James E. Rogers Energy Complex
-Longview Power LLC,Longview Power Plant
-General James M Gavin,"Gavin Power, LLC"
-Spiritwood Energy Cogen Plant,Spiritwood Station
-Wygen 3,Wygen III
-Virginia Tech Power Plant,Virginia Tech Power Plant
-Polk,Polk
+Cogen South,
+E C Gaston,E C Gaston
 Edwardsport (IGCC),Edwardsport
+GRDA,GREC
+General James M Gavin,"Gavin Power, LLC"
+Homer City Station,Homer City Generating Station
+James River Cogeneration,James River Genco LLC
+Longview Power LLC,Longview Power Plant
+Manitowoc,Manitowoc
+PPL Brunner Island,Brunner Island
+Polk,Polk
+Primary Energy Roxboro,CPI USA NC Roxboro
+Primary Energy Southport,CPI USA NC Southport
+Purdue University,Purdue University
+Rapids Energy Center,Rapids Energy Center
+Rodemacher,Brame Energy Center
+Scrubgrass Generating Company LP,Scrubgrass Generating Plant
+Spiritwood Energy Cogen Plant,Spiritwood Station
+Twin Oaks Power One,Major Oak Power
 University of Illinois Abbott Power Plt,University of Illinois Abbott Power Plt
+University of Missouri Columbia,MU Combined Heat and Power Plant
+Virginia,Virginia
+Virginia Tech Power Plant,Virginia Tech Power Plant
+Wygen 3,Wygen III
+Roxboro,Roxboro

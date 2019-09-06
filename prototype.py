@@ -14,6 +14,7 @@ import numpy as np
 # define working directory where all files live
 cwd = os.path.dirname(os.path.realpath(__file__))
 
+
 ###############################################################################
 ########################### BUILDING THE DATABASE #############################
 ###############################################################################
@@ -45,7 +46,8 @@ def import_eia860(cols=None):
 
 
 """
-Merges RMI depreciation model to existing EIA database.
+Merges RMI depreciation model to existing EIA database. Currently can be used
+on both the 'plant balance clean.csv' and 'cost of electricity clean.csv'
 INPUTS
     plants: current database
     cols:   list of columns to import from depreciation database. If None,
@@ -54,16 +56,23 @@ OUTPUTS
     plants: updated database with plant balances
 RUNTIME: ~15 sec
 """
-def add_depreciation_model(plants, cols=None):
+def add_depreciation_model(plants, filename=None, cols=None):
     if cols is None:
-        cols = 'Current Net Plant Balance Incl. Removal Net of Salvage ($)'
-    depr_model = pd.read_csv(os.path.join(cwd, 'plant balance clean.csv'))
-    # remove zero and nan values
-    depr_model = depr_model[depr_model[cols].notnull() & (depr_model[cols] != 0)]
+        cols = ['Current Net Plant Balance Incl. Removal Net of Salvage ($)',
+                'Retirement Year']
+        new_cols = ['Plant Balance', 'Retirement Year']
+    else:
+        new_cols = cols
+    if filename is None:
+        filename = 'plant balance clean.csv'
+    depr_model = pd.read_csv(os.path.join(cwd, filename))
     # do not include 'other production' rows
     depr_model = depr_model[~(depr_model['Plant ID'].str.contains('Other') | 
                         depr_model['Plant ID'].str.contains('Mining'))]
-
+    for col in cols:
+        # remove zero and nan values
+        depr_model = depr_model[depr_model[col].notnull() & (depr_model[col] != 0)]
+        
     for i, row in depr_model.iterrows():
         if '_' in row['Plant ID']:
             plant_id = row['Plant ID'].split('_')[0]
@@ -71,13 +80,15 @@ def add_depreciation_model(plants, cols=None):
             match = plants[(plants['Plant Code'] == float(plant_id)) & 
                            (plants['Generator ID'] == unit_id)]
             if not (match.empty):
-                plants.loc[(plants['Plant Code'] == float(plant_id)) & 
-                           (plants['Generator ID'] == unit_id), 'Plant Balance'] = \
-                               row[cols]
+                for col in zip(cols, new_cols):
+                    plants.loc[(plants['Plant Code'] == float(plant_id)) & 
+                               (plants['Generator ID'] == unit_id), col[1]] = \
+                                   row[col[0]]
         else:
             new_row = plants[plants['Plant Code'] == float(row['Plant ID'])].iloc[0]
             new_row['Generator ID'] = 'ALL'
-            new_row['Plant Balance'] = row[cols]
+            for col in zip(cols, new_cols):
+                new_row[col[1]] = row[col[0]]
             plants = plants.append(new_row)
     return plants
 
@@ -94,6 +105,8 @@ OUTPUTS
 RUNTIME: ~20 sec
 """
 def add_sc_planning_tool(plants, cols=None):
+    # Note for updating SC planning tool: manually updated plant names for 
+    # Marshall and Columbia due to redundancy issues.
     if cols is None:
         cols = ['Current Designation', 'Predicted Retirement Year']
     plan_tool = pd.read_csv(os.path.join(cwd, 'SC planning tool.csv'), skiprows=2)
@@ -102,7 +115,8 @@ def add_sc_planning_tool(plants, cols=None):
                          (plants['Technology'] == 'Coal Integrated Gasification Combined Cycle')]
     plant_names = list(set(coal_plants['Plant Name']))
     
-    remaining = plan_tool.loc[plan_tool['Current Designation'] == 'Other Remaining']
+    remaining_groups = ['2020 Vulnerable', '2025 Vulnerable', 'Announced', 'Other Remaining']
+    remaining = plan_tool[plan_tool['Current Designation'].isin(remaining_groups)]
     for i, row in remaining.iterrows():
         if name_mapping['Sierra Club'].str.contains(row['Plant Name']).any():
             match = name_mapping.loc[name_mapping['Sierra Club'] == row['Plant Name'], 'EIA 860'].iloc[0]
@@ -185,20 +199,22 @@ RUNETIME: ~70 sec
 """
 def build_database():
     all_plants, owners = import_eia860()
-    all_plants = add_depreciation_model(all_plants)
+    all_plants = add_depreciation_model(all_plants, filename='plant balance clean.csv')
+    all_plants = add_depreciation_model(all_plants, filename='cost of electricity clean.csv', cols=['Total Cost of Electricity Excluding ADIT ($/MWh)'])
+    all_plants = add_sc_planning_tool(all_plants)
     # select only coal plants or plants with plant balances (~1000 out of 20000)
     plants = all_plants[(all_plants['Technology'] == 'Conventional Steam Coal') |
                         (all_plants['Technology'] == 'Coal Integrated Gasification Combined Cycle') |
-                        (all_plants['Plant Balance'].notnull())]
+                        (all_plants['Plant Balance'].notnull()) |
+                        (all_plants['Current Designation'].notnull())]
     
-    plants = add_sc_planning_tool(plants)
     plants = add_self_committing(plants)
     plants = add_multiple_ownership(plants, owners)
     return plants, all_plants
 
 
 
-plants, all_plants = build_database()
+#plants, all_plants = build_database()
 
 
 
@@ -229,14 +245,47 @@ def graph_top(plants, label, number, xlabel, title):
     return fig
 
 # graphs the top 10 plant balances; top 10 self-committing plants
-pb = graph_top(plants, 'Plant Balance', 10, 'Undepreciated Plant Balance ($)', 
-               'Candidates for Securitization (WI, KY)')
-cf = graph_top(plants, 'CF Offset', 10, 'Difference of Expected vs. Actual Capacity Factor (%)', 
-               'Self-Committing Plants (SPP)')
-pr = graph_top(plants, 'Profits', 10, 'Profits/Losses in 2015-17 ($ Millions)', 
-               'Least Profitable Plants (SPP)')
+#pb = graph_top(plants, 'Plant Balance', 10, 'Undepreciated Plant Balance ($)', 
+#               'Candidates for Securitization (WI, KY)')
+#cf = graph_top(plants, 'CF Offset', 10, 'Difference of Expected vs. Actual Capacity Factor (%)', 
+#               'Self-Committing Plants (SPP)')
+#pr = graph_top(plants, 'Profits', 10, 'Profits/Losses in 2015-17 ($ Millions)', 
+#               'Least Profitable Plants (SPP)')
     
+"""
+Graphs plant balance as a function of another variable, financial or operational.
+Valid x_axis arguments currently: 'Retirement Year', 'Nameplate Capacity (MW)',
+'Total Cost of Electricity Excluding ADIT ($/MWh)'.
 
+THIS IS NOT YET FUNCTIONAL / CLEANED UP
+"""
+def plot_plant_balance(plants, x_axis, designations=None, labels=True, title=None):    
+    if designations is None:
+        designations = ['2020 Vulnerable', '2025 Vulnerable', 'Announced', 'Other Remaining']
+        colors = ['indianred','darkorchid','cyan','green']
+    if x_axis not in plants.columns[plants.dtypes == np.float64]:
+        print("Invalid x axis. Select one of the following:")
+        print(*plants.columns[plants.dtypes == np.float64], sep=', ')
+        return
+    plants = select_plants_with_balances(select_remaining_plants(plants))
+    plants = plants[plants[x_axis].notnull()]
+    fig, ax = plt.subplots()
+
+    for designation, color in zip(designations, colors):
+        subset = plants[plants['Current Designation'] == designation]
+        ax.scatter(subset[x_axis], subset['Plant Balance'], c=color, label=designation)
+        # this labels the points
+        if labels:
+            for i, txt in enumerate(subset['Plant Name'] + ' ' + subset['Generator ID']):
+                ax.annotate(txt, (subset[x_axis].iloc[i]+.7, subset['Plant Balance'].iloc[i]+.5))
+    ax.legend()
+    if title is not None:
+        ax.set_title(title)
+    ax.set_xlabel(x_axis)
+    ax.set_ylabel('Plant Balance ($ billions)')
+    #ax.set_ylim([-.15*np.power(10,9), 1.85*np.power(10,9)])
+    fig.savefig(os.path.join(cwd, 'outputs', 'plot1.png'))
+    return fig
 
 
 ###############################################################################
@@ -266,6 +315,20 @@ def select_by_attribute(df, attribute, values):
     if not isinstance(values, list):
         values = [values]
     return df[df[attribute].isin(values)]
+
+
+"""
+Selects all plants without a retirement date, per SC planning tool.
+"""
+def select_remaining_plants(df):
+    remaining_groups = ['2020 Vulnerable', '2025 Vulnerable', 'Announced', 'Other Remaining']
+    return df[df['Current Designation'].isin(remaining_groups)]
+
+"""
+Selects all plants with plant balances available.
+"""
+def select_plants_with_balances(df):
+    return df[df['Plant Balance'].notnull()]
 
 
 """
@@ -309,8 +372,7 @@ def sort_by_attribute(df, attribute, ascending=True):
         print(*df.columns, sep=', ')
         return
     return sorted
+
         
-        
-        
-        
+
         
