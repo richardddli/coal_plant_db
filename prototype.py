@@ -105,6 +105,8 @@ OUTPUTS
 RUNTIME: ~20 sec
 """
 def add_sc_planning_tool(plants, cols=None):
+    # Note for updating SC planning tool: manually updated plant names for 
+    # Marshall and Columbia due to redundancy issues.
     if cols is None:
         cols = ['Current Designation', 'Predicted Retirement Year']
     plan_tool = pd.read_csv(os.path.join(cwd, 'SC planning tool.csv'), skiprows=2)
@@ -113,7 +115,8 @@ def add_sc_planning_tool(plants, cols=None):
                          (plants['Technology'] == 'Coal Integrated Gasification Combined Cycle')]
     plant_names = list(set(coal_plants['Plant Name']))
     
-    remaining = plan_tool.loc[plan_tool['Current Designation'] == 'Other Remaining']
+    remaining_groups = ['2020 Vulnerable', '2025 Vulnerable', 'Announced', 'Other Remaining']
+    remaining = plan_tool[plan_tool['Current Designation'].isin(remaining_groups)]
     for i, row in remaining.iterrows():
         if name_mapping['Sierra Club'].str.contains(row['Plant Name']).any():
             match = name_mapping.loc[name_mapping['Sierra Club'] == row['Plant Name'], 'EIA 860'].iloc[0]
@@ -198,12 +201,13 @@ def build_database():
     all_plants, owners = import_eia860()
     all_plants = add_depreciation_model(all_plants, filename='plant balance clean.csv')
     all_plants = add_depreciation_model(all_plants, filename='cost of electricity clean.csv', cols=['Total Cost of Electricity Excluding ADIT ($/MWh)'])
+    all_plants = add_sc_planning_tool(all_plants)
     # select only coal plants or plants with plant balances (~1000 out of 20000)
     plants = all_plants[(all_plants['Technology'] == 'Conventional Steam Coal') |
                         (all_plants['Technology'] == 'Coal Integrated Gasification Combined Cycle') |
-                        (all_plants['Plant Balance'].notnull())]
+                        (all_plants['Plant Balance'].notnull()) |
+                        (all_plants['Current Designation'].notnull())]
     
-    plants = add_sc_planning_tool(plants)
     plants = add_self_committing(plants)
     plants = add_multiple_ownership(plants, owners)
     return plants, all_plants
@@ -250,25 +254,37 @@ def graph_top(plants, label, number, xlabel, title):
     
 """
 Graphs plant balance as a function of another variable, financial or operational.
-THIS IS NOT YET FUNCTIONAL
+Valid x_axis arguments currently: 'Retirement Year', 'Nameplate Capacity (MW)',
+'Total Cost of Electricity Excluding ADIT ($/MWh)'.
+
+THIS IS NOT YET FUNCTIONAL / CLEANED UP
 """
-def plot_plant_balance(df):
-    a.sort_values('Plant Balance', ascending=False)
-    a['name'] = a['Plant Name'] + ' ' +a['Generator ID']
-    a.set_index('name', inplace=True)
-    
-    fig,ax=plt.subplots()
-    fig.set_size_inches(7,4)
-    ax2=ax.twinx()
-    
-    a['Plant Balance'].plot(kind='bar',width=width, color='blue', ax=ax, position=1, label='Plant Balance')      
-    a['Retirement Year'].plot(kind='bar', color='green',width=width, ax=ax2, position=0, label='Predicted Retirement Year')
-    ax2.set_ylim([2030, 2080])
-    ax.set_ylabel('Plant Balance ($)')
-    ax2.set_ylabel('Year plant is paid off')
-    ax.set_title('Other Remaining plants: Plant Balances & Predicted Retirement Year\n')
-    fig.legend(bbox_to_anchor=(.88,1.49))
-    ax.set_xlim(-.75,10.75)
+def plot_plant_balance(plants, x_axis, designations=None, labels=True, title=None):    
+    if designations is None:
+        designations = ['2020 Vulnerable', '2025 Vulnerable', 'Announced', 'Other Remaining']
+        colors = ['indianred','darkorchid','cyan','green']
+    if x_axis not in plants.columns[plants.dtypes == np.float64]:
+        print("Invalid x axis. Select one of the following:")
+        print(*plants.columns[plants.dtypes == np.float64], sep=', ')
+        return
+    plants = select_plants_with_balances(select_remaining_plants(plants))
+    plants = plants[plants[x_axis].notnull()]
+    fig, ax = plt.subplots()
+
+    for designation, color in zip(designations, colors):
+        subset = plants[plants['Current Designation'] == designation]
+        ax.scatter(subset[x_axis], subset['Plant Balance'], c=color, label=designation)
+        # this labels the points
+        if labels:
+            for i, txt in enumerate(subset['Plant Name'] + ' ' + subset['Generator ID']):
+                ax.annotate(txt, (subset[x_axis].iloc[i]+.7, subset['Plant Balance'].iloc[i]+.5))
+    ax.legend()
+    if title is not None:
+        ax.set_title(title)
+    ax.set_xlabel(x_axis)
+    ax.set_ylabel('Plant Balance ($ billions)')
+    #ax.set_ylim([-.15*np.power(10,9), 1.85*np.power(10,9)])
+    return fig
 
 
 ###############################################################################
@@ -306,6 +322,12 @@ Selects all plants without a retirement date, per SC planning tool.
 def select_remaining_plants(df):
     remaining_groups = ['2020 Vulnerable', '2025 Vulnerable', 'Announced', 'Other Remaining']
     return df[df['Current Designation'].isin(remaining_groups)]
+
+"""
+Selects all plants with plant balances available.
+"""
+def select_plants_with_balances(df):
+    return df[df['Plant Balance'].notnull()]
 
 
 """
