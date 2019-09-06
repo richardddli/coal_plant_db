@@ -1,10 +1,13 @@
-import os
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+# -*- coding: utf-8 -*-
+
 import xlwings as xw
 from xlwings import Range
 import prototype as pt
+
+"""
+Pastes formatted "plants" dataframe from prototype.py into the csv tab on the UI.
+Takes inputs from the inputs tab on the UI.
+"""
 
 def create_csv():
     sht = xw.Book.caller().sheets['inputs'] #for calling parameters
@@ -55,6 +58,12 @@ if __name__ == '__main__':
     # Expects the Excel file next to this source file, adjust accordingly.
     xw.Book('UI_Mockup.xlsm').set_mock_caller()
     CreateCsv()
+
+"""
+Creates visualization on the vis tab on the UI.
+Takes inputs from the inputs tab on the UI.
+User has option to paste visualization created in python or pre-formatted table in xlsm.
+"""
 
 def create_chart():
     # read in prototype df and python visualizations
