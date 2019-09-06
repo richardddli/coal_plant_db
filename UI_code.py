@@ -23,7 +23,10 @@ def create_csv():
     #file_path = sht.range('N25').value  # reads in selected utility
 
     #define df depending on analysis type
-    df = pt.plants
+    #df = pt.plants
+    ### DIRECTLY READS IN CURRENT VERSION OF DATABASE ###
+    cwd = os.path.dirname(os.path.realpath(__file__))
+    df = pd.read_csv(os.path.join(cwd, 'current database', 'plants_df.csv'))
 
     #analysis functions
     if State:
@@ -58,7 +61,11 @@ if __name__ == '__main__':
 
 def create_chart():
     # read in prototype df and python visualizations
-    df = pt.plants
+    #df = pt.plants
+    ### DIRECTLY READS IN CURRENT VERSION OF DATABASE ###
+    cwd = os.path.dirname(os.path.realpath(__file__))
+    df = pd.read_csv(os.path.join(cwd, 'current database', 'plants_df.csv'))
+    
     pb = pt.pb
     cf = pt.cf
     pr = pt.pr
