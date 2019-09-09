@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+import os
+import pandas as pd
 import xlwings as xw
 from xlwings import Range
 import prototype as pt
@@ -7,6 +9,7 @@ import prototype as pt
 """
 Pastes formatted "plants" dataframe from prototype.py into the csv tab on the UI.
 Takes inputs from the inputs tab on the UI.
+RUNTIME: ~1-5 sec
 """
 
 def create_csv():
@@ -14,11 +17,11 @@ def create_csv():
     pst = xw.Book.caller().sheets['csv'] #for pasting results
 
     #data subsetting selections
-    State = Range('F11').value  # reads in selected utility
-    #Market = sht.Range('F13').value  # reads in selected utility
-    Utility = Range('F20').value  # reads in selected utility
-    #Utility_type = sht.Range('F22').value  # reads in selected utility
-    Sierra = Range('F29').value  # reads in selected utility
+    State = Range('F10').value  # reads in selected utility
+    #Market = sht.Range('F12').value  # reads in selected utility
+    Utility = Range('F14').value  # reads in selected utility
+    #Utility_type = sht.Range('F16').value  # reads in selected utility
+    Sierra = Range('F21').value  # reads in selected utility
 
     #data output selections
     Level = Range('N11').value  # reads in selected utility
@@ -39,11 +42,6 @@ def create_csv():
     else:
         newdf = df
 
-    if Sierra:
-        newdf = pt.select_by_attribute(newdf, 'Current Designation', Sierra)
-    else:
-        newdf = newdf
-
     if Level:
         newdf = pt.aggregate_by_level(newdf, Level)
     else:
@@ -51,6 +49,13 @@ def create_csv():
 
     if Sort:
         newdf = pt.sort_by_attribute(newdf, 'Nameplate Capacity (MW)', ascending=False)
+    else:
+        newdf = newdf
+
+    if Sierra == 'No Retirement':
+        newdf = pt.select_remaining_plants(newdf)
+    elif Sierra:
+        newdf = pt.select_by_attribute(newdf, 'Current Designation', Sierra)
     else:
         newdf = newdf
 
@@ -74,31 +79,47 @@ def create_chart():
     ### DIRECTLY READS IN CURRENT VERSION OF DATABASE ###
     cwd = os.path.dirname(os.path.realpath(__file__))
     df = pd.read_csv(os.path.join(cwd, 'current database', 'plants_df.csv'))
-    
-    pb = pt.pb
-    cf = pt.cf
-    pr = pt.pr
 
     # Create a reference to the calling Excel Workbook
     sht = xw.Book.caller().sheets['inputs'] #for calling parameters
     pst = xw.Book.caller().sheets['vis'] #for pasting results
 
-    chart = Range('V11').value
+    #data subsetting selections
+    State = Range('F10').value  # reads in selected utility
+    #Market = sht.Range('F12').value  # reads in selected utility
+    Utility = Range('F14').value  # reads in selected utility
+    #Utility_type = sht.Range('F16').value  # reads in selected utility
+    Sierra = Range('F21').value  # reads in selected utility
 
-    if Range('V21').value == 'Python':
-        # create visualization in python
-        if chart == 'Plant Balance':
-            fig = pb
-        elif chart == 'CF Offset':
-            fig = cf
-        elif chart == 'Profits':
-            fig = pr
-        pst.pictures.add(fig, name='MyPlot', update=True, left=sht.range('E2').left, top=sht.range('E2').top)
+    #data output selections
+    label = Range('V10').value #reads in Top 10 Chart label value
+    #xaxis = Range('V15').value #reads in Plant Balance Chart xaxis value
+
+    #Top 10 Chart
+    if label:
+        if Range('V21').value == 'Python':
+            fig = pt.graph_top(df, label)
+            pst.pictures.add(fig, name='MyPlot', update=True, left=sht.range('E2').left, top=sht.range('E2').top)
+        elif Range('V21').value == 'Excel':
+            ascending = False if label == 'Plant Balance' else True
+            df = df.sort_values(label, ascending=ascending)
+            df = df.iloc[:10]
+            pst.range('A1').options(index=False).value = df
+        else:
+            return
     else:
-        df.sort_values(by=[chart])
-        largest = df.nlargest(10, chart)
-        largest = largest[['Utility Name', 'Plant Name', chart]]
-        pst.range('A1').options(index=False).value = largest
+        return
+
+    """
+    #Plant Balance Chart
+    if xaxis:
+        if Range('V21').value == 'Python':
+        elif Range('V21').value == 'Excel':
+        else:
+            return
+    else:
+        return
+    """
 
 if __name__ == '__main__':
     # Expects the Excel file next to this source file, adjust accordingly.
